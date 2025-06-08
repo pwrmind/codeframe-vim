@@ -12,7 +12,7 @@ function! codeframe#Enable() abort
     augroup END
 
     " Инициализация холста
-    if expand('%:e') == 'ccv'
+    if expand('%:e') == 'cf'
         let s:canvas_bufnr = bufnr('%')
         call s:ParseCanvas()
     endif
@@ -89,7 +89,7 @@ endfunction
 
 function! s:SaveFrameSizes() abort
     " Сохранение размеров фреймов
-    if expand('%:e') != 'ccv' | return | endif
+    if expand('%:e') != 'cf' | return | endif
 
     for [lnum, frame] in items(s:frames)
         let winid = bufwinid(frame.bufnr)
