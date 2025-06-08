@@ -1,25 +1,25 @@
 " Файл: ~/.vim/plugined/multi_frame.vim
 
-" Определяем глобальные переменные
+echo 'Определяем глобальные переменные'
 let g:frames = []
 let g:current_frame = 0
 
-" Функция для загрузки файлов и создания фреймов
 function! LoadFrames()
+    echo 'Функция для загрузки файлов и создания фреймов'
     let l:lines = getline(1, '$')
     let l:current_file = ''
     let l:frame = []
 
     for l:line in l:lines
         if l:line =~ '^+++ '
-            " Сохраняем предыдущий фрейм, если он существует
+            echo 'Сохраняем предыдущий фрейм, если он существует'
             if !empty(l:frame)
                 call add(g:frames, l:frame)
                 let l:frame = []
             endif
             let l:current_file = substitute(l:line, '^+++ ', '', '')
         elseif l:line =~ '^@@ '
-            " Сохраняем текущий фрейм
+            echo 'Сохраняем текущий фрейм'
             if !empty(l:frame)
                 call add(g:frames, l:frame)
                 let l:frame = []
@@ -30,15 +30,15 @@ function! LoadFrames()
         endif
     endfor
 
-    " Добавляем последний фрейм
+    echo 'Добавляем последний фрейм'
     if !empty(l:frame)
         call add(g:frames, l:frame)
     endif
 endfunction
 
-" Функция для отображения фреймов
 function! DisplayFrames()
-    " Очищаем текущее окно
+    echo 'Функция для отображения фреймов'
+    echo 'Очищаем текущее окно'
     normal! gvgv
     for l:frame in g:frames
         call append(line('$'), l:frame)
@@ -46,14 +46,14 @@ function! DisplayFrames()
     endfor
 endfunction
 
-" Функция для смещения фреймов
 function! ShiftFrame(direction)
+    echo 'Функция для смещения фреймов'
     if a:direction == 'up'
         let g:current_frame -= 1
     elseif a:direction == 'down'
         let g:current_frame += 1
     endif
-    " Обновляем отображение
+    echo 'Обновляем отображение'
     call DisplayFrames()
 endfunction
 
