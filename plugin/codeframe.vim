@@ -1,74 +1,92 @@
 let s:frames = {}
 let s:current_file = ''
-let s:canvas_bufnr = -1
 
 function! codeframe#Enable() abort
-    " Проверка тегов при перемещении курсора
     augroup CodeFrame
         autocmd! * <buffer>
+        autocmd BufReadPost <buffer> call s:LoadFrames()
         autocmd CursorMoved <buffer> call s:CheckTagLine()
-        autocmd BufWritePost <buffer> call s:SaveFrameSizes()
+        autocmd BufWritePre <buffer> call s:WriteFrames()
     augroup END
 
-    " Инициализация только для .cf файлов
     if expand('%:e') == 'cf'
-        let s:canvas_bufnr = bufnr('%')
-        let s:frames = {}
-        let s:current_file = ''
-        call s:ParseCanvas()
+        call s:Debug('Plugin activated for: ' . expand('%'))
+        call s:LoadFrames()
     endif
 endfunction
 
-function! s:ParseCanvas() abort
+function! s:Debug(msg)
+    echom '[CodeFrame] ' . a:msg
+endfunction
+
+function! s:LoadFrames() abort
+    call s:Debug('Loading frames...')
     let lines = getline(1, '$')
-    
-    for idx in range(len(lines))
-        let line = lines[idx]
+    let s:frames = {}
+    let s:current_file = ''
+    let i = 1
+
+    while i <= len(lines)
+        let line = lines[i-1]
+        
         if line =~# '^+++'
             let s:current_file = substitute(line, '^+++\s*', '', '')
-        elseif line =~# '^@@ +\d\+,\d\+ @@$'
+            call s:Debug('Found source file: ' . s:current_file)
+            let i += 1
+            continue
+        endif
+        
+        if line =~# '^@@ +\d\+,\d\+ @@$'
             let match = matchlist(line, '^@@ +\(\d\+\),\(\d\+\) @@$')
             if !empty(match)
                 let start_line = str2nr(match[1])
                 let line_count = str2nr(match[2])
+                call s:Debug('Found frame: ' . s:current_file . ' lines:' . start_line . '-' . (start_line+line_count-1))
                 
-                " Проверка существования файла
-                if !filereadable(s:current_file)
-                    echoerr 'File not found:' s:current_file
-                    continue
+                if filereadable(s:current_file)
+                    " Читаем содержимое исходного файла
+                    let content = readfile(s:current_file, '', start_line + line_count)
+                    if len(content) >= start_line
+                        let frame_lines = content[start_line-1 : start_line + line_count - 2]
+                    else
+                        let frame_lines = ['ERROR: File too short']
+                    endif
+                    
+                    " Заменяем текущее содержимое фрейма
+                    let end_line = i + line_count
+                    if end_line > len(lines)
+                        let end_line = len(lines)
+                    endif
+                    
+                    silent execute (i+1) . ',' . end_line . 'd _'
+                    call append(i, frame_lines)
+                    
+                    " Сохраняем информацию о фрейме
+                    let s:frames[i] = {
+                        \ 'file': s:current_file,
+                        \ 'start_line': start_line,
+                        \ 'line_count': line_count,
+                        \ 'content': frame_lines
+                        \ }
+                    
+                    " Обновляем список строк
+                    let lines = getline(1, '$')
+                    let i += len(frame_lines)
+                else
+                    call s:Debug('File not readable: ' . s:current_file)
                 endif
-                
-                let frame_info = {
-                    \ 'file': s:current_file,
-                    \ 'start_line': start_line,
-                    \ 'line_count': line_count,
-                    \ 'bufnr': bufnr(s:current_file, 1)
-                    \ }
-                let s:frames[idx+1] = frame_info
-                call s:CreateFrameWindow(frame_info)
             endif
         endif
-    endfor
-endfunction
-
-function! s:CreateFrameWindow(frame) abort
-    " Сохраняем текущее окно
-    let current_win = winnr()
-    
-    " Создаём новое окно
-    execute 'keepalt belowright split #' . a:frame.bufnr
-    execute 'resize ' . a:frame.line_count
-    execute 'normal! ' . a:frame.start_line . 'ggzt'
-    setlocal scrolloff=0
-    setlocal winfixheight
-    
-    " Возвращаемся к холсту
-    execute current_win . 'wincmd w'
+        
+        let i += 1
+    endwhile
+    call s:Debug('Frames loaded successfully')
 endfunction
 
 function! s:CheckTagLine() abort
     let line = getline('.')
     if line =~# '^@@ +\d\+,\d\+ @@$'
+        call s:Debug('Cursor on frame tag: ' . line)
         nnoremap <buffer> <silent> <S-Up> :call <SID>ShiftFrame(-1)<CR>
         nnoremap <buffer> <silent> <S-Down> :call <SID>ShiftFrame(1)<CR>
     else
@@ -79,44 +97,94 @@ endfunction
 
 function! s:ShiftFrame(direction) abort
     let lnum = line('.')
-    if has_key(s:frames, lnum)
-        let frame = s:frames[lnum]
-        let new_start = frame.start_line + a:direction
-        
-        " Проверка границ файла
-        let max_lines = line('$', frame.bufnr)
-        if new_start < 1 || new_start > max_lines
-            return
-        endif
-        
-        let frame.start_line = new_start
-        call s:UpdateFrameDisplay(frame, lnum)
-    endif
-endfunction
-
-function! s:UpdateFrameDisplay(frame, lnum) abort
-    " Обновление тега
-    let tag_line = '@@ +' . a:frame.start_line . ',' . a:frame.line_count . ' @@'
-    call setline(a:lnum, tag_line)
+    let line = getline(lnum)
     
-    " Обновление содержимого в окне
-    let win_id = bufwinid(a:frame.bufnr)
-    if win_id > 0
-        call win_execute(win_id, 'normal! ' . a:frame.start_line . 'ggzt')
-    endif
-endfunction
-
-function! s:SaveFrameSizes() abort
-    if expand('%:e') != 'cf' | return | endif
-
-    for [lnum, frame] in items(s:frames)
-        let win_id = bufwinid(frame.bufnr)
-        if win_id > 0
-            let height = winheight(win_id)
-            if height != frame.line_count
-                let frame.line_count = height
-                call setline(lnum, '@@ +' . frame.start_line . ',' . height . ' @@')
+    if line =~# '^@@ +\d\+,\d\+ @@$'
+        let match = matchlist(line, '^@@ +\(\d\+\),\(\d\+\) @@$')
+        if !empty(match)
+            let start_line = str2nr(match[1])
+            let line_count = str2nr(match[2])
+            let new_start = start_line + a:direction
+            
+            if new_start > 0
+                " Находим исходный файл для этого фрейма
+                let current_file = ''
+                let search_line = lnum - 1
+                while search_line >= 1
+                    let prev_line = getline(search_line)
+                    if prev_line =~# '^+++'
+                        let current_file = substitute(prev_line, '^+++\s*', '', '')
+                        break
+                    endif
+                    let search_line -= 1
+                endwhile
+                
+                if !empty(current_file) && filereadable(current_file)
+                    " Обновляем содержимое фрейма
+                    let content = readfile(current_file, '', new_start + line_count)
+                    if len(content) >= new_start
+                        let frame_lines = content[new_start-1 : new_start + line_count - 2]
+                    else
+                        let frame_lines = ['ERROR: File too short']
+                    endif
+                    
+                    " Заменяем содержимое фрейма
+                    silent execute (lnum+1) . ',' . (lnum+line_count) . 'd _'
+                    call append(lnum, frame_lines)
+                    
+                    " Обновляем тег
+                    call setline(lnum, '@@ +' . new_start . ',' . line_count . ' @@')
+                    
+                    " Обновляем информацию о фрейме
+                    let s:frames[lnum] = {
+                        \ 'file': current_file,
+                        \ 'start_line': new_start,
+                        \ 'line_count': line_count,
+                        \ 'content': frame_lines
+                        \ }
+                    
+                    call s:Debug('Frame shifted to: ' . new_start)
+                endif
             endif
         endif
+    endif
+endfunction
+
+function! s:WriteFrames() abort
+    call s:Debug('Saving frames to source files...')
+    for [lnum, frame] in items(s:frames)
+        if filereadable(frame.file)
+            " Читаем весь исходный файл
+            let content = readfile(frame.file)
+            let new_content = []
+            
+            " Получаем актуальное содержимое фрейма
+            let frame_lines = getline(lnum+1, lnum+frame.line_count)
+            
+            " Заменяем блок в исходном файле
+            for i in range(len(content))
+                if i == frame.start_line - 1
+                    let new_content += frame_lines
+                    let i += frame.line_count - 1
+                else
+                    if i < len(content)
+                        call add(new_content, content[i])
+                    endif
+                endif
+            endfor
+            
+            " Если блок выходит за пределы файла
+            if frame.start_line > len(content)
+                let new_content += repeat([''], frame.start_line - len(content) - 1)
+                let new_content += frame_lines
+            endif
+            
+            " Записываем изменения
+            call writefile(new_content, frame.file)
+            call s:Debug('Saved ' . len(frame_lines) . ' lines to: ' . frame.file)
+        else
+            call s:Debug('File not writable: ' . frame.file)
+        endif
     endfor
+    call s:Debug('All frames saved')
 endfunction
