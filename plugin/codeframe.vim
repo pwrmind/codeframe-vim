@@ -3,9 +3,9 @@ let s:frames = {}
 let s:current_file = ''
 let s:canvas_bufnr = -1
 
-function! codeframe#Enable() abort
+function! CodeFrame#Enable() abort
     " Проверка тегов при перемещении курсора
-    augroup codeframe
+    augroup CodeFrame
         autocmd!
         autocmd CursorMoved * call s:CheckTagLine()
         autocmd BufWritePost * call s:SaveFrameSizes()
